@@ -542,6 +542,9 @@ def main():
     if bc_only or online_steps <= 0:
         print("\nBC training complete. Skipping online RL phase.")
         save_agent(agent, save_dir, log_step)
+        for environment in (eval_envs, eval_env, env):
+            if environment is not None:
+                environment.close()
         logger.close()
         return
     else:
@@ -631,6 +634,9 @@ def main():
     print(
         f"\nOnline RL complete. Final success rate: {final_eval_info.get('success', 'N/A')}"
     )
+    for environment in (eval_envs, eval_env, env):
+        if environment is not None:
+            environment.close()
     logger.close()
 
 
