@@ -2,7 +2,7 @@
 
 set -e
 
-export MUJOCO_GL=egl
+export MUJOCO_GL=${MUJOCO_GL:-egl}
 # export XLA_PYTHON_CLIENT_PREALLOCATE=false
 
 # === Config ===
@@ -64,6 +64,7 @@ log_interval=5000
 eval_interval=20000
 eval_interval_bc=20000
 save_interval=500000
+preemption_backup_interval=-1
 
 # BC settings
 clip_bc=true
@@ -222,6 +223,7 @@ uv run python ogpo/main.py \
     --intervals.eval_interval=$eval_interval \
     --intervals.eval_interval_bc=$eval_interval_bc \
     --intervals.save_interval=$save_interval \
+    --intervals.preemption_backup_interval=$preemption_backup_interval \
     --bc.clip_bc=$clip_bc \
     --bc.clip_bc_threshold=$clip_bc_threshold \
     --bc.clip_bc_wrt=$clip_bc_wrt \

@@ -310,9 +310,9 @@ class ReplayBuffer(Dataset):
         # FrozenDict content might not be in __dict__.
         if '_dict' not in state and hasattr(self, '_dict'):
              state['_dict'] = self._dict
-        # numpy_rng itself is unpicklable; save its state instead.
+        # Generator.__getstate__ returns None on current NumPy versions.
         if 'numpy_rng' in state:
-            state['numpy_rng_state'] = state['numpy_rng'].__getstate__()
+            state['numpy_rng_state'] = state['numpy_rng'].bit_generator.state
             del state['numpy_rng']
         return state
 
@@ -321,7 +321,7 @@ class ReplayBuffer(Dataset):
         if 'numpy_rng_state' in state:
             numpy_rng_state = state.pop('numpy_rng_state')
             state['numpy_rng'] = np.random.default_rng()
-            state['numpy_rng'].__setstate__(numpy_rng_state)
+            state['numpy_rng'].bit_generator.state = numpy_rng_state
 
         for key, value in state.items():
             object.__setattr__(self, key, value)

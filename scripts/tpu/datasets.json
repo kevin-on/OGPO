@@ -1,0 +1,21 @@
+{
+  "repo": "robomimic/robomimic_datasets",
+  "revision": "74fa018461f479cd9fd15b924a16103012096203",
+  "files": [
+    {
+      "path": "square/mh/low_dim_v15.hdf5",
+      "bytes": 123300120,
+      "sha256": "da7dee0b6da49feae81dbde8fc6508660788e2131098f72ca44f60528405172d"
+    },
+    {
+      "path": "tool_hang/ph/low_dim_v15.hdf5",
+      "bytes": 198601752,
+      "sha256": "c5cb01b119a109a3d4842ca515906e86f1f35a8ee1a333d22b3503c1a513a8f4"
+    },
+    {
+      "path": "transport/mh/low_dim_v15.hdf5",
+      "bytes": 621187696,
+      "sha256": "b54d650e1048b132f160b349b3b36bb9e008ddb4093913700bbee422c6ae4347"
+    }
+  ]
+}

@@ -2,12 +2,13 @@
 checkpointing, logging, and Q-value bounds."""
 
 import glob
+import fcntl
 import json
 import os
 import pickle
 import random
-import shutil
 import time
+from contextlib import contextmanager
 from collections import defaultdict
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -123,40 +124,43 @@ def save_rolling_checkpoint(
         wandb_run_id: Optional[str] = None,
         algo_name: str = 'ogpo',
     ):
-    """ Save rolling checkpoint (keeps only latest)"""
+    """Publish metadata last, and serialize saves with external checkpoint upload."""
     checkpoint_dir = get_checkpoint_dir(seed, env_name, algo_name)
     os.makedirs(checkpoint_dir, exist_ok=True)
-
-    agent_path = os.path.join(checkpoint_dir, f'{step}_agent.pkl')
-    buffer_path = os.path.join(checkpoint_dir, f'{step}_buffer.pkl')
-    meta_path = os.path.join(checkpoint_dir, f'{step}_meta.json')
-
-    with open(agent_path, 'wb') as f:
-        pickle.dump(flax.serialization.to_state_dict(agent), f)
-
-    with open(buffer_path, 'wb') as f:
-        pickle.dump(replay_buffer, f)
-
     meta_data = {'online_loop_step': online_loop_step}
     if wandb_run_id is not None:
         meta_data['wandb_run_id'] = wandb_run_id
-    with open(meta_path, 'w') as f:
-        json.dump(meta_data, f)
-
+    with checkpoint_lock(checkpoint_dir):
+        for suffix, value in [('agent.pkl', flax.serialization.to_state_dict(agent)),
+                              ('buffer.pkl', replay_buffer), ('meta.json', meta_data)]:
+            path = os.path.join(checkpoint_dir, f'{step}_{suffix}')
+            with open(path + '.tmp', 'wb') as f:
+                if suffix == 'meta.json':
+                    f.write(json.dumps(value).encode())
+                else:
+                    pickle.dump(value, f)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(path + '.tmp', path)
+        for pattern in ('*_agent.pkl', '*_buffer.pkl', '*_meta.json', '*.tmp'):
+            for path in glob.glob(os.path.join(checkpoint_dir, pattern)):
+                if not os.path.basename(path).startswith(f'{step}_'):
+                    os.unlink(path)
     print(f"Saved rolling checkpoint to {checkpoint_dir} at step {step}")
 
-    # Remove all but the just-written checkpoint.
-    for filename in os.listdir(checkpoint_dir):
-        if str(step) in filename:
-            continue
-        file_path = os.path.join(checkpoint_dir, filename)
-        try:
-            if os.path.isfile(file_path) or os.path.islink(file_path):
-                os.unlink(file_path)
-            elif os.path.isdir(file_path):
-                shutil.rmtree(file_path)
-        except Exception as e:
-            print(f'Failed to delete {file_path}. Reason: {e}')
+
+@contextmanager
+def checkpoint_lock(checkpoint_dir):
+    os.makedirs(checkpoint_dir, exist_ok=True)
+    with open(os.path.join(checkpoint_dir, '.lock'), 'a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        yield
+
+
+def latest_checkpoint_metadata(checkpoint_dir):
+    """Metadata is the commit marker; incomplete newer writes are ignored."""
+    files = glob.glob(os.path.join(checkpoint_dir, '*_meta.json'))
+    return max(files, key=lambda f: int(os.path.basename(f).split('_')[0]), default=None)
 
 
 def load_rolling_checkpoint(seed: int, env_name: str, agent_structure: Any, algo_name: str = 'ogpo',) -> Tuple[Any, Any, int, int, Optional[str]]:
@@ -165,36 +169,23 @@ def load_rolling_checkpoint(seed: int, env_name: str, agent_structure: Any, algo
     if not os.path.exists(checkpoint_dir):
         return None, None, None, None, None
 
-    files = glob.glob(os.path.join(checkpoint_dir, "*_agent.pkl"))
-    if not files:
+    meta_path = latest_checkpoint_metadata(checkpoint_dir)
+    if meta_path is None:
         return None, None, None, None, None
-
-    steps = []
-    for f in files:
-        try:
-            basename = os.path.basename(f)
-            step = int(basename.split('_')[0])
-            steps.append(step)
-        except:
-            continue
-
-    if not steps:
-        return None, None, None, None, None
-
-    latest_step = max(steps)
+    latest_step = int(os.path.basename(meta_path).split('_')[0])
 
     agent_path = os.path.join(checkpoint_dir, f'{latest_step}_agent.pkl')
     buffer_path = os.path.join(checkpoint_dir, f'{latest_step}_buffer.pkl')
     meta_path = os.path.join(checkpoint_dir, f'{latest_step}_meta.json')
 
-    if not os.path.exists(buffer_path):
-        print(f"Buffer checkpoint missing for step {latest_step}")
-        return None, None, None, None, None
-
     print(f"Loading rolling checkpoint from step {latest_step}")
 
     with open(agent_path, 'rb') as f:
         agent_state = pickle.load(f)
+    # Optimizer transformations/schedules are static fields, not serialized.
+    # Build the online template first, then restore its saved optimizer state.
+    if hasattr(agent_structure, 'reset_optimizers_with_lr'):
+        agent_structure = agent_structure.reset_optimizers_with_lr()
     agent = flax.serialization.from_state_dict(agent_structure, agent_state)
 
     with open(buffer_path, 'rb') as f:
@@ -365,9 +356,8 @@ def setup_experiment_logging(
             try:
                 checkpoint_dir = checkpoint_dir_fn(seed, env_name)
                 if os.path.exists(checkpoint_dir):
-                    files = glob.glob(os.path.join(checkpoint_dir, "*_meta.json"))
-                    if files:
-                        latest_meta = max(files, key=lambda f: int(os.path.basename(f).split('_')[0]))
+                    latest_meta = latest_checkpoint_metadata(checkpoint_dir)
+                    if latest_meta:
                         with open(latest_meta, 'r') as f:
                             meta = json.load(f)
                             checkpoint_wandb_id = meta.get('wandb_run_id', None)

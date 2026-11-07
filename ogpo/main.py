@@ -348,23 +348,19 @@ def main():
     resumed_step = 0
     resumed_online_step = 0
     resumed_buffer = None
-    try:
-        (
-            resumed_agent,
-            resumed_buffer,
-            resumed_step,
-            resumed_online_step,
-            resumed_wandb_id,
-        ) = load_rolling_checkpoint(seed, env_name, agent, algo_name)
-        if resumed_agent is not None:
-            agent = resumed_agent
-            if mesh is not None:
-                agent = shard_agent(agent, mesh)
-            is_resumed = True
-            print(f"Resumed from step {resumed_step}")
-    except Exception as e:
-        print(f"Could not load checkpoint: {e}")
-        resumed_buffer = None
+    (
+        resumed_agent,
+        resumed_buffer,
+        resumed_step,
+        resumed_online_step,
+        resumed_wandb_id,
+    ) = load_rolling_checkpoint(seed, env_name, agent, algo_name)
+    if resumed_agent is not None:
+        agent = resumed_agent
+        if mesh is not None:
+            agent = shard_agent(agent, mesh)
+        is_resumed = True
+        print(f"Resumed from step {resumed_step}")
 
     # Restore pre-trained weights
     if not is_resumed:
